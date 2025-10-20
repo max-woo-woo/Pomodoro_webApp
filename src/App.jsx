@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { TimerDisplay } from './components/TimerComponents';
+import CalendarView from './components/CalendarView';
 import { useIndexedDB } from './hooks/useIndexedDB';
 import { useTimer } from './hooks/useTimer';
 import './App.css';
@@ -14,8 +15,11 @@ function App() {
   const holdStartRef = useRef(0);
   const [isReturning, setIsReturning] = useState(false);
   
-  const { sessions, saveSession, clearSessions } = useIndexedDB();
+  const { sessions, saveSession, clearSessions, getEventsForMonth, saveEvent, deleteEvent } = useIndexedDB();
+  const dbApi = { getEventsForMonth, saveEvent, deleteEvent };
+  const [showCalendar, setShowCalendar] = useState(false);
   const audioCtxRef = useRef(null);
+  const [suppressTimerTransition, setSuppressTimerTransition] = useState(false);
 
   // play a short beep using Web Audio API via a persistent AudioContext created on user gesture
   const playBeep = () => {
@@ -78,6 +82,19 @@ function App() {
     }
     setHasStarted(true);
     toggleTimer();
+  };
+
+  const closeCalendar = () => {
+    // ensure calendar closes and home shows without the timer
+    // temporarily disable timer transitions to avoid fade-out animation
+    setSuppressTimerTransition(true);
+    setShowCalendar(false);
+    setHasStarted(false);
+    setIsReturning(false);
+    // reset the timer display/state
+    try { resetTimer(); } catch (e) { /* ignore if not available */ }
+    // re-enable transitions on next tick
+    setTimeout(() => setSuppressTimerTransition(false), 80);
   };
 
   const handleMouseMove = (e) => {
@@ -190,63 +207,77 @@ function App() {
   const dash = CIRCUMFERENCE * clampedProgress;
 
   return (
-    <div 
-      className="pomodoro-container"
-    >
-      <div className={`initial-view ${hasStarted || isReturning ? 'fade-out' : ''}`}>
-        <h1 className="title">Pomodomax</h1>
-        <button className="start-button" onClick={handleStart}>
-          Start
-        </button>
-        <button className="start-button" onClick={clearSessions} style={{marginTop:12, fontSize:12, height:36, width:160}}>Clear sessions</button>
-      </div>
-      
-      <div className={`timer-view ${hasStarted && !isReturning ? 'fade-in' : ''} ${isReturning ? 'fade-out' : ''}`}>
-        <TimerDisplay time={formatTime(timeLeft)} />
-      </div>
+    <div className="pomodoro-container">
+      {!showCalendar ? (
+        // Home / Timer UI
+        <>
+          <div className={`initial-view ${hasStarted || isReturning ? 'fade-out' : ''}`}>
+            <button className="arrow-btn arrow-left" onClick={() => setShowCalendar(true)}>◀</button>
+            <h1 className="title">Pomodomax</h1>
+            <button className="start-button" onClick={handleStart}>
+              Start
+            </button>
+            <button className="start-button" onClick={clearSessions} style={{marginTop:12, fontSize:12, height:36, width:160}}>Clear sessions</button>
+          </div>
 
-      {isHolding && (
-        <svg 
-          className="progress-circle"
-          style={{
-            left: mousePosition.x - 20,
-            top: mousePosition.y - 20
-          }}
-          width="40"
-          height="40"
-          viewBox="0 0 40 40"
-        >
-          <circle
-            cx="20"
-            cy="20"
-            r="18"
-            fill="none"
-            stroke="rgba(255, 255, 255, 0.2)"
-            strokeWidth="2"
-          />
-          <circle
-            cx="20"
-            cy="20"
-            r="18"
-            fill="none"
-            stroke="white"
-            strokeWidth="2"
-            strokeDasharray={`${dash} ${CIRCUMFERENCE}`}
-            transform="rotate(-90 20 20)"
-          />
-        </svg>
+          <div className={`timer-view ${hasStarted && !isReturning ? 'fade-in' : ''} ${isReturning ? 'fade-out' : ''} ${suppressTimerTransition ? 'no-transition' : ''}`}>
+            <TimerDisplay time={formatTime(timeLeft)} />
+          </div>
+
+          {isHolding && (
+            <svg 
+              className="progress-circle"
+              style={{
+                left: mousePosition.x - 20,
+                top: mousePosition.y - 20
+              }}
+              width="40"
+              height="40"
+              viewBox="0 0 40 40"
+            >
+              <circle
+                cx="20"
+                cy="20"
+                r="18"
+                fill="none"
+                stroke="rgba(255, 255, 255, 0.2)"
+                strokeWidth="2"
+              />
+              <circle
+                cx="20"
+                cy="20"
+                r="18"
+                fill="none"
+                stroke="white"
+                strokeWidth="2"
+                strokeDasharray={`${dash} ${CIRCUMFERENCE}`}
+                transform="rotate(-90 20 20)"
+              />
+            </svg>
+          )}
+
+          {DEBUG && (
+            <div className="debug-overlay">
+              <div>timeLeft: {timeLeft}</div>
+              <div>isActive: {isActive ? 'true' : 'false'}</div>
+              <div>isHolding: {isHolding ? 'true' : 'false'}</div>
+              <div>holdProgress: {Math.round(holdProgress * 100)}%</div>
+            </div>
+          )}
+
+          <div className="sessions-home">
+            <div>Sessions terminées : {sessions}</div>
+          </div>
+        </>
+      ) : (
+        // Calendar only UI
+        <>
+          <button className="arrow-btn arrow-right" onClick={closeCalendar}>▶</button>
+          <div className="calendar-overlay">
+            <CalendarView onClose={closeCalendar} dbApi={dbApi} />
+          </div>
+        </>
       )}
-      {DEBUG && (
-        <div className="debug-overlay">
-          <div>timeLeft: {timeLeft}</div>
-          <div>isActive: {isActive ? 'true' : 'false'}</div>
-          <div>isHolding: {isHolding ? 'true' : 'false'}</div>
-          <div>holdProgress: {Math.round(holdProgress * 100)}%</div>
-        </div>
-      )}
-      <div className="sessions-home">
-        <div>Sessions terminées : {sessions}</div>
-      </div>
     </div>
   );
 }
