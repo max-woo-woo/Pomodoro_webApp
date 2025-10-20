@@ -1,8 +1,161 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
+/* Reset et styles de base */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #1a237e; /* Bleu nuit profond */
+  font-family: 'Arial', sans-serif;
+  color: white;
+  min-height: 100vh;
+}
+
+.pomodoro-container {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: relative;
+  pointer-events: auto; /* ensure container doesn't block events */
+}
+
+/* Styles de la vue initiale */
+.initial-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2rem;
+  position: absolute;
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+  /* Assurer que les enfants gardent leur hitbox */
+  transform-style: preserve-3d;
+  pointer-events: auto;
+  z-index: 50; /* Ensure home view sits above other elements when visible */
+}
+
+.initial-view.fade-out {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+
+.title {
+  font-size: 4rem;
+  font-weight: bold;
+  color: white;
+  margin-bottom: 2rem;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.start-button {
+  /* Dimensions fixes pour une hitbox précise */
+  width: 280px;
+  height: 80px;
+  padding: 0;
+  margin: 0;
+  
+  /* Style visuel */
+  font-size: 2rem;
+  background: transparent;
+  color: white;
+  border: 2px solid white;
+  border-radius: 40px;
+  
+  /* Comportement */
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  
+  /* Animation */
+  transition: background-color 0.3s ease, box-shadow 0.3s ease;
+  
+  /* Assure la cliquabilité complète */
+  position: relative;
+  z-index: 100; /* Make sure the start button is on top of small overlays */
+  
+  /* Évite les problèmes de sélection */
+  user-select: none;
+  -webkit-user-select: none;
+  
+  /* Force la hitbox à correspondre aux dimensions visuelles */
+  box-sizing: border-box;
+  
+  /* Empêche les transformations d'affecter la hitbox */
+  transform: translateZ(0);
+  backface-visibility: hidden;
+}
+
+.start-button:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+  box-shadow: 0 0 20px rgba(255, 255, 255, 0.3);
+}
+
+.start-button:active {
+  background-color: rgba(255, 255, 255, 0.2);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.2);
+}
+
+/* Styles de la vue timer */
+.timer-view {
+  position: absolute;
+  opacity: 0;
+  transform: scale(1.05);
+  transition: opacity 0.5s ease-in, transform 0.5s ease-in;
+  transition-delay: 0.3s;
+  pointer-events: none; /* Don't intercept clicks when hidden */
+}
+
+.timer-view.fade-in {
+  opacity: 1;
+  transform: scale(1);
+  pointer-events: auto; /* Allow interactions when visible */
+}
+
+/* When returning to home, fade out the timer smoothly */
+.timer-view.fade-out {
+  opacity: 0;
+  transform: scale(0.95);
+  pointer-events: none;
+}
+
+.timer {
   text-align: center;
+}
+
+.timer h2 {
+  font-size: 8rem;
+  font-weight: 300;
+  color: white;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.progress-circle {
+  position: fixed;
+  pointer-events: none;
+  z-index: 5; /* Keep progress circle under UI elements like the start button */
+  transition: transform 0.1s ease-out;
+}
+
+.progress-circle circle {
+  transition: stroke-dasharray 0.05s linear;
+}
+
+.debug-overlay {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  background: rgba(0,0,0,0.6);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  z-index: 200;
 }
 
 .logo {
