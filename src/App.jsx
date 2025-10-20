@@ -14,16 +14,68 @@ function App() {
   const holdStartRef = useRef(0);
   const [isReturning, setIsReturning] = useState(false);
   
-  const { sessions, saveSession } = useIndexedDB();
+  const { sessions, saveSession, clearSessions } = useIndexedDB();
+  const audioCtxRef = useRef(null);
+
+  // play a short beep using Web Audio API via a persistent AudioContext created on user gesture
+  const playBeep = () => {
+    try {
+      const ctx = audioCtxRef.current || new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      // use triangle wave (softer) and lower peak gain
+      o.type = 'triangle';
+      // slightly lower pitch for a warmer tone
+      o.frequency.value = 520; // around C5
+      // start with a very small gain; we'll ramp up quickly to audible level
+      g.gain.value = 0.00001;
+      o.connect(g);
+      g.connect(ctx.destination);
+      const now = ctx.currentTime;
+      g.gain.setValueAtTime(0.00001, now);
+      // ADSR-like envelope: quick attack to a higher peak, slow decay to a softer sustain, then release
+      // attack -> to a stronger perceptible level
+      g.gain.linearRampToValueAtTime(0.16, now + 0.03);
+      // decay -> down to a sustain level over ~400ms
+      g.gain.exponentialRampToValueAtTime(0.02, now + 0.45);
+      // hold sustain for a short while then release
+      g.gain.exponentialRampToValueAtTime(0.001, now + 1.05);
+      o.start(now);
+      // stop oscillator slightly after the release to avoid clicks
+      o.stop(now + 1.2);
+      if (!audioCtxRef.current) audioCtxRef.current = ctx;
+    } catch (e) {
+      console.debug('beep failed', e);
+    }
+  };
+
+  // Called when timer completes: play beep, persist session and return to home smoothly
+  const onTimerComplete = () => {
+    playBeep();
+    saveSession();
+    // set returning state to trigger timer fade-out, then go home after animation
+    setIsReturning(true);
+    setTimeout(() => {
+      setHasStarted(false);
+      setIsReturning(false);
+      resetTimer();
+    }, 500);
+  };
+
   const { 
     timeLeft, 
     isActive, 
     toggleTimer, 
     resetTimer, 
     formatTime 
-  } = useTimer(saveSession);
+  } = useTimer(onTimerComplete);
 
   const handleStart = () => {
+    // create/resume AudioContext on user gesture so later sounds are allowed
+    if (!audioCtxRef.current) {
+      try { audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { /* ignore */ }
+    }
     setHasStarted(true);
     toggleTimer();
   };
@@ -146,6 +198,7 @@ function App() {
         <button className="start-button" onClick={handleStart}>
           Start
         </button>
+        <button className="start-button" onClick={clearSessions} style={{marginTop:12, fontSize:12, height:36, width:160}}>Clear sessions</button>
       </div>
       
       <div className={`timer-view ${hasStarted && !isReturning ? 'fade-in' : ''} ${isReturning ? 'fade-out' : ''}`}>
@@ -191,6 +244,9 @@ function App() {
           <div>holdProgress: {Math.round(holdProgress * 100)}%</div>
         </div>
       )}
+      <div className="sessions-home">
+        <div>Sessions terminées : {sessions}</div>
+      </div>
     </div>
   );
 }

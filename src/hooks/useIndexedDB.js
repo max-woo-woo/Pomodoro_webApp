@@ -55,8 +55,21 @@ export const useIndexedDB = () => {
         }
     };
 
+    const clearSessions = () => {
+        if (db) {
+            const transaction = db.transaction([POMODORO_CONFIG.STORE_NAME], 'readwrite');
+            const store = transaction.objectStore(POMODORO_CONFIG.STORE_NAME);
+            const req = store.clear();
+            req.onsuccess = () => {
+                setSessions(0);
+            };
+            req.onerror = (e) => console.error('clearSessions error', e);
+        }
+    };
+
     return {
         sessions,
-        saveSession
+        saveSession,
+        clearSessions
     };
 };

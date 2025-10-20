@@ -66,3 +66,33 @@ src/
    - Créer de nouveaux hooks si nécessaire
    - Étendre les composants existants
    - Ajouter de nouveaux composants
+
+## [2025-10-20] Ajustements audio et persistance pour tests
+
+### Changements Effectués
+
+1. **Bip audio rendu plus audible et plus long**
+    - Fonction `playBeep()` (dans `src/App.jsx`) : enveloppe ADSR ajustée, pic de gain augmenté et durée prolongée (~1.2s) pour un retour plus perceptible.
+    - Oscillateur : type `triangle` conservé pour un son doux, fréquence légèrement abaissée pour un timbre plus chaud.
+
+2. **AudioContext persistant et initialisé sur interaction**
+    - `AudioContext` maintenant stocké dans `audioCtxRef` et créé/activé lors du premier geste utilisateur (clic Start) pour éviter les blocages de lecture audio par le navigateur.
+
+3. **Corrections et améliorations liées aux sessions**
+    - Ajout de `clearSessions()` dans le hook `useIndexedDB` et bouton de test "Clear sessions" sur l'écran d'accueil.
+    - Correction d'un bug où la callback de fin de timer (`onComplete`) pouvait être appelée plusieurs fois : garde locale ajoutée dans `useTimer`.
+
+4. **Mode de test temporaire**
+    - `DEFAULT_MINUTES` réglé temporairement sur ~0.1667 (10s) pour faciliter les tests rapides. Revenir à 25 minutes avant production.
+
+### Fichiers modifiés
+
+- `src/App.jsx` : `playBeep()` (audio), AudioContext gestion, UI "Clear sessions".
+- `src/hooks/useIndexedDB.js` : ajout de `clearSessions()`.
+- `src/hooks/useTimer.js` : garde pour éviter doubles appels `onComplete`.
+- `src/config/constants.js` : durée par défaut temporairement définie sur 10s pour tests.
+
+### Notes
+
+- Si vous préférez un son différent (fichier wav/mp3), il est recommandé d'ajouter le fichier dans `public/` et de le jouer via `AudioBuffer` pour une latence adaptée.
+- Penser à remettre `DEFAULT_MINUTES` à 25 minutes avant déploiement en production.
