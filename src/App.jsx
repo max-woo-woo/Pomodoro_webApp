@@ -20,6 +20,13 @@ function App() {
   const [showCalendar, setShowCalendar] = useState(false);
   const audioCtxRef = useRef(null);
   const [suppressTimerTransition, setSuppressTimerTransition] = useState(false);
+  // subjects created from homepage (name + color)
+  const [subjects, setSubjects] = useState([]);
+  const [subjectModalOpen, setSubjectModalOpen] = useState(false);
+  const [subjectName, setSubjectName] = useState('');
+  const [subjectColor, setSubjectColor] = useState('#6c5ce7');
+  const subjectColorRef = useRef(null);
+  const [editingSubjectId, setEditingSubjectId] = useState(null);
 
   // play a short beep using Web Audio API via a persistent AudioContext created on user gesture
   const playBeep = () => {
@@ -218,6 +225,21 @@ function App() {
               Start
             </button>
             <button className="start-button" onClick={clearSessions} style={{marginTop:12, fontSize:12, height:36, width:160}}>Clear sessions</button>
+
+            {/* Add subject button top-right */}
+            <button className="add-subject-btn" onClick={() => { setEditingSubjectId(null); setSubjectName(''); setSubjectColor('#6c5ce7'); setSubjectModalOpen(true); }}>Ajouter un sujet +</button>
+
+            {/* Subjects list beneath the button */}
+            {subjects && subjects.length > 0 && (
+              <div className="subjects-list" aria-live="polite">
+                {subjects.map(s => (
+                  <div key={s.id} className="subject-item" onClick={() => { setEditingSubjectId(s.id); setSubjectName(s.name); setSubjectColor(s.color); setSubjectModalOpen(true); }}>
+                    <span className="subject-dot" style={{ background: s.color }} aria-hidden="true" />
+                    <span className="subject-name">{s.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className={`timer-view ${hasStarted && !isReturning ? 'fade-in' : ''} ${isReturning ? 'fade-out' : ''} ${suppressTimerTransition ? 'no-transition' : ''}`}>
@@ -268,6 +290,54 @@ function App() {
           <div className="sessions-home">
             <div>Sessions terminées : {sessions}</div>
           </div>
+          {/* Subject modal (homepage) */}
+          {subjectModalOpen && (
+            <div className="event-modal-overlay">
+              <div className="event-modal">
+                <h3>Nouveau sujet</h3>
+                <label>Nom du sujet</label>
+                <input value={subjectName} onChange={e => setSubjectName(e.target.value)} />
+                <label>Couleur</label>
+                  <div className="color-chooser">
+                    <input ref={subjectColorRef} type="color" value={subjectColor} onChange={e => setSubjectColor(e.target.value)} 
+                      style={{ width: 36, height: 36, padding: 0, border: 'none', background: 'transparent' }} />
+                    <div className="color-preview" style={{ background: subjectColor }} onClick={() => subjectColorRef.current && subjectColorRef.current.click()} />
+                  </div>
+                <div className="modal-actions">
+                  <button onClick={() => { setSubjectModalOpen(false); setSubjectName(''); setEditingSubjectId(null); }}>Annuler</button>
+                  {editingSubjectId ? (
+                    <>
+                      <button onClick={() => {
+                        // delete
+                        setSubjects(prev => prev.filter(x => x.id !== editingSubjectId));
+                        setSubjectModalOpen(false);
+                        setEditingSubjectId(null);
+                        setSubjectName('');
+                      }}>Supprimer</button>
+                      <button onClick={() => {
+                        // save changes
+                        setSubjects(prev => prev.map(x => x.id === editingSubjectId ? { ...x, name: subjectName, color: subjectColor } : x));
+                        setSubjectModalOpen(false);
+                        setEditingSubjectId(null);
+                        setSubjectName('');
+                      }}>Enregistrer</button>
+                    </>
+                  ) : (
+                    <button onClick={() => {
+                      if (!subjectName) return;
+                      // create subject object and store in local state
+                      const subj = { id: Date.now(), name: subjectName, color: subjectColor };
+                      setSubjects(prev => [...prev, subj]);
+                      // reset and close
+                      setSubjectModalOpen(false);
+                      setSubjectName('');
+                      setSubjectColor('#6c5ce7');
+                    }}>Créer</button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </>
       ) : (
         // Calendar only UI

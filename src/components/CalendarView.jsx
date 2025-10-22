@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { POMODORO_CONFIG } from '../config/constants';
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -13,6 +14,11 @@ export const CalendarView = ({ onClose, dbApi }) => {
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
   const [events, setEvents] = useState([]);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalDay, setModalDay] = useState(null);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalColor, setModalColor] = useState('#6c5ce7');
+  const colorInputRef = useRef(null);
 
   const load = async (y, m) => {
     if (dbApi && dbApi.getEventsForMonth) {
@@ -47,15 +53,34 @@ export const CalendarView = ({ onClose, dbApi }) => {
     setMonth(dt.getMonth());
   };
 
-  const handleAddEvent = async (day) => {
-    const title = window.prompt('Titre de l\'événement:');
-    if (!title) return;
-    const dateStr = formatDate(year, month, day);
+  const openAddModal = (day) => {
+    setModalDay(day);
+    setModalTitle('');
+    setModalColor('#6c5ce7');
+    setModalOpen(true);
+  };
+
+  const handleSaveModal = async () => {
+    if (!modalTitle || !modalDay) {
+      alert('Veuillez saisir un titre pour l\'événement.');
+      return;
+    }
+    const dateStr = formatDate(year, month, modalDay);
     try {
-      const saved = await dbApi.saveEvent({ date: dateStr, title });
+      const saved = await dbApi.saveEvent({ date: dateStr, title: modalTitle, color: modalColor });
       setEvents(prev => [...prev, saved]);
+      setModalOpen(false);
+      // small confirmation
+      setTimeout(() => alert('Événement enregistré.'), 20);
     } catch (e) {
       console.error('save event failed', e);
+      let msg = 'Unknown error';
+      try {
+        if (!e) msg = 'no error object';
+        else if (e.message) msg = e.message;
+        else msg = JSON.stringify(e);
+      } catch (ex) { msg = String(e); }
+      alert(`Échec de l'enregistrement : ${msg}. Voir console pour le stack.`);
     }
   };
 
@@ -80,12 +105,12 @@ export const CalendarView = ({ onClose, dbApi }) => {
 
         <div className="calendar-cells">
           {cells.map((day, idx) => (
-            <div key={idx} className={`calendar-cell ${day ? '' : 'empty'}`} onClick={() => day && handleAddEvent(day)}>
+            <div key={idx} className={`calendar-cell ${day ? '' : 'empty'}`} onClick={() => day && openAddModal(day)}>
               {day && <div className="cell-day">{day}</div>}
               {day && (
                 <div className="cell-events">
                   {eventsFor(day).map(ev => (
-                    <div key={ev.id} className="event-item">{ev.title}</div>
+                    <div key={ev.id} className="event-item" style={{ background: ev.color || 'rgba(255,255,255,0.06)' }}>{ev.title}</div>
                   ))}
                 </div>
               )}
@@ -93,6 +118,40 @@ export const CalendarView = ({ onClose, dbApi }) => {
           ))}
         </div>
       </div>
+      {modalOpen && (
+        <div className="event-modal-overlay">
+          <div className="event-modal">
+            <h3>Nouvel événement — {modalDay}/{month+1}/{year}</h3>
+            <label>Titre</label>
+            <input value={modalTitle} onChange={e => setModalTitle(e.target.value)} />
+            <label>Couleur</label>
+            <div className="color-chooser">
+              <input ref={colorInputRef} type="color" value={modalColor} onChange={e => setModalColor(e.target.value)} />
+              <div className="color-preview" style={{ background: modalColor }} aria-hidden="true" onClick={() => colorInputRef.current && colorInputRef.current.click()} />
+              <button className="color-validate" onClick={() => { /* no-op: removed alert per user request */ }}>Valider couleur</button>
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setModalOpen(false)}>Annuler</button>
+              <button onClick={() => {
+                // open a fresh connection and show stores/version for debugging
+                try {
+                  const req = indexedDB.open(POMODORO_CONFIG.DB_NAME);
+                  req.onsuccess = (e) => {
+                    const d = e.target.result;
+                    const stores = Array.from(d.objectStoreNames).join(', ') || '(none)';
+                    alert(`DB version ${d.version}\nstores: ${stores}`);
+                    try { d.close(); } catch (ex) { /* ignore */ }
+                  };
+                  req.onerror = (err) => alert('DB open failed: ' + (err && err.target && err.target.error ? err.target.error : String(err)));
+                } catch (err) {
+                  alert('DB debug failed: ' + String(err));
+                }
+              }}>DB debug</button>
+              <button onClick={handleSaveModal} disabled={!modalTitle}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
