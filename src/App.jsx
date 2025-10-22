@@ -15,7 +15,7 @@ function App() {
   const holdStartRef = useRef(0);
   const [isReturning, setIsReturning] = useState(false);
   
-  const { sessions, saveSession, clearSessions, getEventsForMonth, saveEvent, deleteEvent } = useIndexedDB();
+  const { sessions, saveSession, clearSessions, getEventsForMonth, saveEvent, deleteEvent, subjects: persistedSubjects, saveSubject, deleteSubject } = useIndexedDB();
   const dbApi = { getEventsForMonth, saveEvent, deleteEvent };
   const [showCalendar, setShowCalendar] = useState(false);
   const audioCtxRef = useRef(null);
@@ -27,6 +27,11 @@ function App() {
   const [subjectColor, setSubjectColor] = useState('#6c5ce7');
   const subjectColorRef = useRef(null);
   const [editingSubjectId, setEditingSubjectId] = useState(null);
+
+  // Sync persisted subjects into local state
+  useEffect(() => {
+    if (Array.isArray(persistedSubjects)) setSubjects(persistedSubjects);
+  }, [persistedSubjects]);
 
   // play a short beep using Web Audio API via a persistent AudioContext created on user gesture
   const playBeep = () => {
@@ -309,29 +314,33 @@ function App() {
                     <>
                       <button onClick={() => {
                         // delete
-                        setSubjects(prev => prev.filter(x => x.id !== editingSubjectId));
-                        setSubjectModalOpen(false);
-                        setEditingSubjectId(null);
-                        setSubjectName('');
+                        deleteSubject(editingSubjectId).then(() => {
+                          setSubjectModalOpen(false);
+                          setEditingSubjectId(null);
+                          setSubjectName('');
+                        }).catch(err => { console.error('deleteSubject failed', err); alert('Échec suppression'); });
                       }}>Supprimer</button>
                       <button onClick={() => {
                         // save changes
-                        setSubjects(prev => prev.map(x => x.id === editingSubjectId ? { ...x, name: subjectName, color: subjectColor } : x));
-                        setSubjectModalOpen(false);
-                        setEditingSubjectId(null);
-                        setSubjectName('');
+                        saveSubject({ id: editingSubjectId, name: subjectName, color: subjectColor }).then(() => {
+                          setSubjectModalOpen(false);
+                          setEditingSubjectId(null);
+                          setSubjectName('');
+                        }).catch(err => { console.error('saveSubject failed', err); alert('Échec enregistrement'); });
                       }}>Enregistrer</button>
                     </>
                   ) : (
                     <button onClick={() => {
                       if (!subjectName) return;
                       // create subject object and store in local state
-                      const subj = { id: Date.now(), name: subjectName, color: subjectColor };
-                      setSubjects(prev => [...prev, subj]);
-                      // reset and close
-                      setSubjectModalOpen(false);
-                      setSubjectName('');
-                      setSubjectColor('#6c5ce7');
+                      // persist subject
+                      saveSubject({ name: subjectName, color: subjectColor }).then(() => {
+                        setSubjectModalOpen(false);
+                        setSubjectName('');
+                        setSubjectColor('#6c5ce7');
+                      }).catch(err => {
+                        console.error('failed saveSubject', err); alert('Échec lors de la sauvegarde du sujet');
+                      });
                     }}>Créer</button>
                   )}
                 </div>
@@ -343,8 +352,8 @@ function App() {
         // Calendar only UI
         <>
           <button className="arrow-btn arrow-right" onClick={closeCalendar}>▶</button>
-          <div className="calendar-overlay">
-            <CalendarView onClose={closeCalendar} dbApi={dbApi} />
+            <div className="calendar-overlay">
+            <CalendarView onClose={closeCalendar} dbApi={dbApi} subjects={subjects} />
           </div>
         </>
       )}

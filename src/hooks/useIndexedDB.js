@@ -4,6 +4,7 @@ import { POMODORO_CONFIG } from '../config/constants';
 export const useIndexedDB = () => {
     const [db, setDb] = useState(null);
     const [sessions, setSessions] = useState(0);
+    const [subjects, setSubjects] = useState([]);
 
     const normalizeIDBError = (e) => {
         try {
@@ -47,6 +48,11 @@ export const useIndexedDB = () => {
                     // index by date for efficient queries (date stored as YYYY-MM-DD)
                     store.createIndex('by_date', 'date', { unique: false });
                 }
+                // create subjects store
+                if (!db.objectStoreNames.contains('subjects')) {
+                    const s = db.createObjectStore('subjects', { keyPath: 'id', autoIncrement: true });
+                    s.createIndex('by_name', 'name', { unique: false });
+                }
             };
 
             request.onsuccess = (event) => {
@@ -62,11 +68,16 @@ export const useIndexedDB = () => {
                             const store = upgradeDb.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
                             store.createIndex('by_date', 'date', { unique: false });
                         }
+                        if (!upgradeDb.objectStoreNames.contains('subjects')) {
+                            const s = upgradeDb.createObjectStore('subjects', { keyPath: 'id', autoIncrement: true });
+                            s.createIndex('by_name', 'name', { unique: false });
+                        }
                     };
                     upgradeReq.onsuccess = (e2) => {
                         db = e2.target.result;
                         setDb(db);
                         loadSessions(db);
+                        loadSubjects(db);
                     };
                     upgradeReq.onerror = (err) => {
                         console.error('Failed to upgrade DB for events store', err);
@@ -74,6 +85,7 @@ export const useIndexedDB = () => {
                 } else {
                     setDb(db);
                     loadSessions(db);
+                    loadSubjects(db);
                 }
             };
         };
@@ -89,6 +101,21 @@ export const useIndexedDB = () => {
         countRequest.onsuccess = () => {
             setSessions(countRequest.result);
         };
+    };
+
+    const loadSubjects = (database) => {
+        if (!database) return;
+        try {
+            const tx = database.transaction(['subjects'], 'readonly');
+            const store = tx.objectStore('subjects');
+            const req = store.getAll();
+            req.onsuccess = () => {
+                try { setSubjects(req.result || []); } catch (e) { /* ignore */ }
+            };
+            req.onerror = (e) => { console.error('loadSubjects error', e); };
+        } catch (e) {
+            // store may not exist yet
+        }
     };
 
     // EVENTS API
@@ -171,9 +198,9 @@ export const useIndexedDB = () => {
                 try {
                     const transaction = database.transaction(['events'], 'readwrite');
                     const store = transaction.objectStore('events');
-                    const req = store.add(event);
-                    req.onsuccess = (ev) => resolve({ ...event, id: ev.target.result });
-                    req.onerror = (e) => reject(normalizeIDBError(e));
+                        const req = (event.id ? store.put(event) : store.add(event));
+                        req.onsuccess = (ev) => resolve({ ...event, id: ev.target.result || event.id });
+                        req.onerror = (e) => reject(normalizeIDBError(e));
                     // also listen for transaction-level errors
                     transaction.onabort = transaction.onerror = (te) => {
                         reject(normalizeIDBError(te));
@@ -234,14 +261,180 @@ export const useIndexedDB = () => {
             .then(databaseWithStore => tryWithRetry(databaseWithStore));
     };
 
-    const deleteEvent = (id) => {
-        if (!db) return Promise.reject(new Error('DB not initialized'));
+    // SUBJECTS API
+    const ensureSubjectsStore = (database) => {
         return new Promise((resolve, reject) => {
-            const transaction = db.transaction(['events'], 'readwrite');
-            const store = transaction.objectStore('events');
-            const req = store.delete(id);
-            req.onsuccess = () => resolve();
-            req.onerror = (e) => reject(normalizeIDBError(e));
+            try {
+                if (database.objectStoreNames.contains('subjects')) return resolve(database);
+            } catch (e) {
+                // fall through to upgrade path
+            }
+
+            const newVersion = database.version + 1;
+            database.close();
+            const upgradeReq = indexedDB.open(POMODORO_CONFIG.DB_NAME, newVersion);
+            upgradeReq.onupgradeneeded = (e) => {
+                const upgradeDb = e.target.result;
+                if (!upgradeDb.objectStoreNames.contains('subjects')) {
+                    const s = upgradeDb.createObjectStore('subjects', { keyPath: 'id', autoIncrement: true });
+                    s.createIndex('by_name', 'name', { unique: false });
+                }
+                if (!upgradeDb.objectStoreNames.contains(POMODORO_CONFIG.STORE_NAME)) {
+                    upgradeDb.createObjectStore(POMODORO_CONFIG.STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                }
+                if (!upgradeDb.objectStoreNames.contains('events')) {
+                    const store = upgradeDb.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
+                    store.createIndex('by_date', 'date', { unique: false });
+                }
+            };
+            upgradeReq.onsuccess = (e2) => resolve(e2.target.result);
+            upgradeReq.onerror = (err) => reject(normalizeIDBError(err));
+        });
+    };
+
+    const saveSubject = (subject) => {
+        // subject: { name: '...', color: '#hex' } - if has id, will be put
+        const openFreshDbIfNeeded = () => {
+            if (db) return Promise.resolve(db);
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(POMODORO_CONFIG.DB_NAME);
+                req.onupgradeneeded = (e) => {
+                    const idb = e.target.result;
+                    if (!idb.objectStoreNames.contains(POMODORO_CONFIG.STORE_NAME)) {
+                        idb.createObjectStore(POMODORO_CONFIG.STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!idb.objectStoreNames.contains('events')) {
+                        const store = idb.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
+                        store.createIndex('by_date', 'date', { unique: false });
+                    }
+                    if (!idb.objectStoreNames.contains('subjects')) {
+                        const s = idb.createObjectStore('subjects', { keyPath: 'id', autoIncrement: true });
+                        s.createIndex('by_name', 'name', { unique: false });
+                    }
+                };
+                req.onsuccess = (e) => { try { setDb(e.target.result); } catch (_) {} ; resolve(e.target.result); };
+                req.onerror = (e) => reject(normalizeIDBError(e));
+            });
+        };
+
+        let triedReopen = false;
+        const addOnce = (database) => {
+            return new Promise((resolve, reject) => {
+                try {
+                    const tx = database.transaction(['subjects'], 'readwrite');
+                    const store = tx.objectStore('subjects');
+                    const req = (subject.id ? store.put(subject) : store.add(subject));
+                    req.onsuccess = (e) => {
+                        loadSubjects(database);
+                        resolve({ ...subject, id: e.target.result });
+                    };
+                    req.onerror = (e) => reject(normalizeIDBError(e));
+                    tx.onabort = tx.onerror = (te) => reject(normalizeIDBError(te));
+                } catch (ex) {
+                    reject(normalizeIDBError(ex));
+                }
+            });
+        };
+
+        const tryWithRetry = (database) => {
+            return addOnce(database).catch(err => {
+                console.warn('saveSubject add failed, will attempt reopen once:', err);
+                if (triedReopen) return Promise.reject(err);
+                triedReopen = true;
+                return new Promise((resolve, reject) => {
+                    const reopenReq = indexedDB.open(POMODORO_CONFIG.DB_NAME);
+                    reopenReq.onsuccess = (e) => {
+                        const freshDb = e.target.result;
+                        try { setDb(freshDb); } catch (e) { /* ignore */ }
+                        ensureSubjectsStore(freshDb).then(dbWithStore => {
+                            addOnce(dbWithStore).then(resolve).catch(reject);
+                        }).catch(reject);
+                    };
+                    reopenReq.onerror = (re) => reject(normalizeIDBError(re));
+                });
+            });
+        };
+
+        return openFreshDbIfNeeded().then(database => ensureSubjectsStore(database)).then(databaseWithStore => tryWithRetry(databaseWithStore));
+    };
+
+    const deleteSubject = (id) => {
+        const openFreshDbIfNeeded = () => {
+            if (db) return Promise.resolve(db);
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(POMODORO_CONFIG.DB_NAME);
+                req.onupgradeneeded = (e) => {
+                    const idb = e.target.result;
+                    if (!idb.objectStoreNames.contains(POMODORO_CONFIG.STORE_NAME)) {
+                        idb.createObjectStore(POMODORO_CONFIG.STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!idb.objectStoreNames.contains('events')) {
+                        const store = idb.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
+                        store.createIndex('by_date', 'date', { unique: false });
+                    }
+                    if (!idb.objectStoreNames.contains('subjects')) {
+                        const s = idb.createObjectStore('subjects', { keyPath: 'id', autoIncrement: true });
+                        s.createIndex('by_name', 'name', { unique: false });
+                    }
+                };
+                req.onsuccess = (e) => { try { setDb(e.target.result); } catch (_) {} ; resolve(e.target.result); };
+                req.onerror = (e) => reject(normalizeIDBError(e));
+            });
+        };
+
+        return openFreshDbIfNeeded().then(database => {
+            return new Promise((resolve, reject) => {
+                try {
+                    const tx = database.transaction(['subjects'], 'readwrite');
+                    const store = tx.objectStore('subjects');
+                    const req = store.delete(id);
+                    req.onsuccess = () => { loadSubjects(database); resolve(); };
+                    req.onerror = (e) => reject(normalizeIDBError(e));
+                    tx.onabort = tx.onerror = (te) => reject(normalizeIDBError(te));
+                } catch (ex) {
+                    reject(normalizeIDBError(ex));
+                }
+            });
+        });
+    };
+
+    const deleteEvent = (id) => {
+        const openFreshDbIfNeeded = () => {
+            if (db) return Promise.resolve(db);
+            return new Promise((resolve, reject) => {
+                const req = indexedDB.open(POMODORO_CONFIG.DB_NAME);
+                req.onupgradeneeded = (e) => {
+                    const idb = e.target.result;
+                    if (!idb.objectStoreNames.contains(POMODORO_CONFIG.STORE_NAME)) {
+                        idb.createObjectStore(POMODORO_CONFIG.STORE_NAME, { keyPath: 'id', autoIncrement: true });
+                    }
+                    if (!idb.objectStoreNames.contains('events')) {
+                        const store = idb.createObjectStore('events', { keyPath: 'id', autoIncrement: true });
+                        store.createIndex('by_date', 'date', { unique: false });
+                    }
+                    if (!idb.objectStoreNames.contains('subjects')) {
+                        const s = idb.createObjectStore('subjects', { keyPath: 'id', autoIncrement: true });
+                        s.createIndex('by_name', 'name', { unique: false });
+                    }
+                };
+                req.onsuccess = (e) => { try { setDb(e.target.result); } catch (_) {} ; resolve(e.target.result); };
+                req.onerror = (e) => reject(normalizeIDBError(e));
+            });
+        };
+
+        return openFreshDbIfNeeded().then(database => {
+            return new Promise((resolve, reject) => {
+                try {
+                    const tx = database.transaction(['events'], 'readwrite');
+                    const store = tx.objectStore('events');
+                    const req = store.delete(id);
+                    req.onsuccess = () => resolve();
+                    req.onerror = (e) => reject(normalizeIDBError(e));
+                    tx.onabort = tx.onerror = (te) => reject(normalizeIDBError(te));
+                } catch (ex) {
+                    reject(normalizeIDBError(ex));
+                }
+            });
         });
     };
 
@@ -271,5 +464,6 @@ export const useIndexedDB = () => {
         saveSession,
         clearSessions
         , getEventsForMonth, saveEvent, deleteEvent
+        , subjects, loadSubjects, saveSubject, deleteSubject
     };
 };

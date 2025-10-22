@@ -9,7 +9,7 @@ const formatDate = (y, m, d) => {
   return `${y}-${mm}-${dd}`;
 };
 
-export const CalendarView = ({ onClose, dbApi }) => {
+export const CalendarView = ({ onClose, dbApi, subjects = [] }) => {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
   const [month, setMonth] = useState(today.getMonth());
@@ -18,6 +18,7 @@ export const CalendarView = ({ onClose, dbApi }) => {
   const [modalDay, setModalDay] = useState(null);
   const [modalTitle, setModalTitle] = useState('');
   const [modalColor, setModalColor] = useState('#6c5ce7');
+  const [editingEvent, setEditingEvent] = useState(null);
   const colorInputRef = useRef(null);
 
   const load = async (y, m) => {
@@ -57,6 +58,16 @@ export const CalendarView = ({ onClose, dbApi }) => {
     setModalDay(day);
     setModalTitle('');
     setModalColor('#6c5ce7');
+    setEditingEvent(null);
+    setModalOpen(true);
+  };
+
+  const openEditModal = (eventObj) => {
+    const evDate = new Date(eventObj.date);
+    setModalDay(evDate.getDate());
+    setModalTitle(eventObj.title || '');
+    setModalColor(eventObj.color || '#6c5ce7');
+    setEditingEvent(eventObj);
     setModalOpen(true);
   };
 
@@ -104,18 +115,18 @@ export const CalendarView = ({ onClose, dbApi }) => {
         </div>
 
         <div className="calendar-cells">
-          {cells.map((day, idx) => (
-            <div key={idx} className={`calendar-cell ${day ? '' : 'empty'}`} onClick={() => day && openAddModal(day)}>
-              {day && <div className="cell-day">{day}</div>}
-              {day && (
-                <div className="cell-events">
-                  {eventsFor(day).map(ev => (
-                    <div key={ev.id} className="event-item" style={{ background: ev.color || 'rgba(255,255,255,0.06)' }}>{ev.title}</div>
-                  ))}
+              {cells.map((day, idx) => (
+                <div key={idx} className={`calendar-cell ${day ? '' : 'empty'}`} onClick={() => day && openAddModal(day)}>
+                  {day && <div className="cell-day">{day}</div>}
+                  {day && (
+                    <div className="cell-events">
+                      {eventsFor(day).map(ev => (
+                        <div key={ev.id} className="event-item" style={{ background: ev.color || 'rgba(255,255,255,0.06)' }} onClick={(e) => { e.stopPropagation(); openEditModal(ev); }}>{ev.title}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
-          ))}
+              ))}
         </div>
       </div>
       {modalOpen && (
@@ -124,6 +135,16 @@ export const CalendarView = ({ onClose, dbApi }) => {
             <h3>Nouvel événement — {modalDay}/{month+1}/{year}</h3>
             <label>Titre</label>
             <input value={modalTitle} onChange={e => setModalTitle(e.target.value)} />
+            <label>Sujet</label>
+            <select value={''} onChange={e => {
+              const sid = e.target.value;
+              if (!sid) return;
+              const s = subjects.find(x => String(x.id) === String(sid));
+              if (s) setModalColor(s.color || '#6c5ce7');
+            }}>
+              <option value="">(aucun)</option>
+              {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
             <label>Couleur</label>
             <div className="color-chooser">
               <input ref={colorInputRef} type="color" value={modalColor} onChange={e => setModalColor(e.target.value)} />
@@ -131,23 +152,41 @@ export const CalendarView = ({ onClose, dbApi }) => {
               <button className="color-validate" onClick={() => { /* no-op: removed alert per user request */ }}>Valider couleur</button>
             </div>
             <div className="modal-actions">
-              <button onClick={() => setModalOpen(false)}>Annuler</button>
-              <button onClick={() => {
-                // open a fresh connection and show stores/version for debugging
-                try {
-                  const req = indexedDB.open(POMODORO_CONFIG.DB_NAME);
-                  req.onsuccess = (e) => {
-                    const d = e.target.result;
-                    const stores = Array.from(d.objectStoreNames).join(', ') || '(none)';
-                    alert(`DB version ${d.version}\nstores: ${stores}`);
-                    try { d.close(); } catch (ex) { /* ignore */ }
-                  };
-                  req.onerror = (err) => alert('DB open failed: ' + (err && err.target && err.target.error ? err.target.error : String(err)));
-                } catch (err) {
-                  alert('DB debug failed: ' + String(err));
-                }
-              }}>DB debug</button>
-              <button onClick={handleSaveModal} disabled={!modalTitle}>Enregistrer</button>
+              <button onClick={() => { setModalOpen(false); setEditingEvent(null); }}>Annuler</button>
+              {editingEvent ? (
+                <>
+                  <button onClick={async () => {
+                    // delete event
+                    if (!editingEvent || !editingEvent.id) return;
+                    if (!confirm('Supprimer cet événement ?')) return;
+                    try {
+                      await dbApi.deleteEvent(editingEvent.id);
+                      setEvents(prev => prev.filter(x => x.id !== editingEvent.id));
+                      setModalOpen(false);
+                      setEditingEvent(null);
+                    } catch (err) {
+                      console.error('delete event failed', err);
+                      alert('Échec suppression événement');
+                    }
+                  }}>Supprimer</button>
+                  <button onClick={async () => {
+                    // save changes to existing event (PUT)
+                    const dateStr = formatDate(year, month, modalDay);
+                    const updated = { ...editingEvent, date: dateStr, title: modalTitle, color: modalColor };
+                    try {
+                      const saved = await dbApi.saveEvent(updated);
+                      setEvents(prev => prev.map(x => x.id === saved.id ? saved : x));
+                      setModalOpen(false);
+                      setEditingEvent(null);
+                    } catch (err) {
+                      console.error('update event failed', err);
+                      alert('Échec mise à jour événement');
+                    }
+                  }} disabled={!modalTitle}>Enregistrer</button>
+                </>
+              ) : (
+                <button onClick={handleSaveModal} disabled={!modalTitle}>Enregistrer</button>
+              )}
             </div>
           </div>
         </div>
